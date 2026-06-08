@@ -12,78 +12,111 @@ This directory is the "run it locally right now" alternative to the Ansible appr
 
 ## Key file: `hashicorp.sh`
 
-Single entry point for all operations. Subcommands:
+Single entry point for all operations. Full subcommand list:
 
 ```
-hashicorp.sh consul install
-hashicorp.sh consul bootstrap
+hashicorp.sh install                        # apt-get: tmux curl unzip jq make (root)
 
-hashicorp.sh nomad install
-hashicorp.sh nomad bootstrap [--consul]
+hashicorp.sh consul install [--global]      # download + SHA256-verify; --global copies to /usr/local/bin
+hashicorp.sh consul bootstrap               # write conf/consul.hcl
 
-hashicorp.sh start
+hashicorp.sh nomad install [--global]       # download + SHA256-verify + CNI plugins; --global copies to /usr/local/bin
+hashicorp.sh nomad bootstrap [--consul]     # write conf/nomad.hcl
+
+hashicorp.sh terraform install [--global]   # download + SHA256-verify; --global copies to /usr/local/bin
+
+hashicorp.sh docker install                 # curl https://get.docker.com | sh (cached)
+
+hashicorp.sh start                          # launch tmux session
+hashicorp.sh stop                           # graceful shutdown + kill tmux session
+hashicorp.sh validate                       # check binaries, configs, dirs, archives, runtime
 ```
 
 ## How it works
 
-### install
-- Downloads the binary archive to `./files/` (cached — re-run is safe)
+### install (system deps)
+- `sudo ./hashicorp.sh install`
+- Runs `apt-get install -y tmux curl unzip jq make`
+
+### consul/nomad/terraform install
+- Downloads zip + SHA256SUMS to `./files/` (cached — skipped if file exists; re-run is safe)
 - Verifies SHA256 checksum from HashiCorp's release page
-- Installs binary to `/usr/local/bin/`
-- `nomad install` also installs CNI plugins to `/opt/cni/bin/`
+- Extracts binary to `./files/`; `--global` additionally installs to `/usr/local/bin/`
+- `nomad install` also downloads and installs CNI plugins to `/opt/cni/bin/` and `/opt/cni/config/`
+- All `install` commands require root
 
 ### bootstrap
-- Detects the local IP via `ip route get 1.1.1.1`
-- Writes an HCL config to `./conf/consul.hcl` or `./conf/nomad.hcl`
+- Detects the local IP via `ip route get 1.1.1.1` (consul) or `ip route` default iface (nomad)
+- Writes HCL config to `./conf/consul.hcl` or `./conf/nomad.hcl`
 - Config uses absolute paths (based on `SCRIPT_DIR`) for `data_dir` and `log_file`
+- Creates `./conf/`, `./data/{consul,nomad}/`, `./logs/` directories
 - Safe to re-run — overwrites the config
 
 ### start
-- Creates a tmux session named `hashicorp` with three windows:
-  - `consul` — runs `consul agent -config-file=./conf/consul.hcl`
-  - `nomad` — runs `nomad agent -config=./conf/nomad.hcl`
-  - `adhoc` — plain shell for ad-hoc commands
-- If the session already exists, attaches to it
+- If session `hashicorp` exists, stops it first (calls `stop`), then recreates
+- Creates one tmux window (`main`) split into 3 panes:
+  - top-left (pane 0): `consul agent -config-file=./conf/consul.hcl`
+  - top-right (pane 1): `nomad agent -config=./conf/nomad.hcl`
+  - bottom (pane 2, 30% height): plain shell for ad-hoc commands, focused on attach
+- Attaches to the session after creation
 
-## Versions (update in `hashicorp.sh` at the top)
+### stop
+- Sends `consul leave` if consul is reachable
+- Sends `SIGINT` to the nomad process if nomad is reachable, waits 2 s
+- Kills the tmux session `hashicorp`
+
+### validate
+Checks and prints `[OK]` / `[!!]` / `[--]` for:
+- Binaries: `consul`, `nomad`, `terraform` in `./files/`; `docker`, `tmux` in PATH; CNI bridge + loopback
+- Configs: `conf/consul.hcl`, `conf/nomad.hcl`
+- Directories: `data/consul`, `data/nomad`, `logs`, `files`, `/opt/cni/bin`
+- Downloaded archives: zips, tarballs, docker installer script
+- Runtime: tmux session alive, consul agent reachable, nomad agent reachable
+
+## Versions (update at the top of `hashicorp.sh`)
 
 | Variable | Value |
 |---|---|
 | `CONSUL_VERSION` | `1.22.6` |
 | `NOMAD_VERSION` | `1.11.3` |
 | `CNI_VERSION` | `v1.9.1` |
+| `TERRAFORM_VERSION` | `1.14.8` |
 
 ## Consul config highlights (`conf/consul.hcl`)
 
-- Single-node server (`server=true`, `bootstrap_expect=1`)
+- Single-node server (`server=true`, `bootstrap_expect=1`, `bootstrap=true`)
 - UI enabled at `http://<bind_ip>:8500/ui`
 - Consul Connect enabled
-- DNS on port 8600, gRPC on 8502
+- DNS on port 8600, HTTP on 8500, gRPC on 8502, HTTPS disabled (-1)
+- Recursors: `1.1.1.1`, `8.8.8.8`, `8.8.4.4`
+- Log rotation: 10 MB / 24 h / max 100 files
 - Data in `./data/consul/`, logs in `./logs/consul.log`
 
 ## Nomad config highlights (`conf/nomad.hcl`)
 
-- Combined server + client (single-node dev setup)
-- `bootstrap_expect=1`
-- Docker plugin (privileged, volumes enabled) + raw_exec plugin
-- CNI plugins at `/opt/cni/bin/`
+- Combined server + client (single-node dev setup), `bootstrap_expect=1`
+- Scheduler: `spread` algorithm, memory oversubscription enabled
+- Docker plugin (privileged, volumes enabled) at `unix:///var/run/docker.sock` + raw_exec plugin
+- CNI plugins at `/opt/cni/bin/`, config at `/opt/cni/config/`
+- Log rotation: 10 MB / 24 h / max 100 files
 - Data in `./data/nomad/`, logs in `./logs/nomad.log`
-- With `--consul`: consul stanza pointing to `localhost:8500` with `server_auto_join=true`
-- Without `--consul`: `server_join` with `retry_join=["127.0.0.1"]`
+- With `--consul`: consul stanza pointing to `localhost:8500`, `server_auto_join=true`, `client_auto_join=true`
+- Without `--consul`: `server_join` with `retry_join=["127.0.0.1"]`, `retry_max=3`, `retry_interval=15s`
 
 ## Conventions
 
 - `#!/bin/bash` with `SCRIPT_DIR=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)`
 - `set -exo pipefail` inside each subcommand function
 - Tab indentation (4-wide)
-- `require_root()` guard on install commands
-- Files in `data/`, `logs/`, `files/` are gitignored
+- `require_root()` guard on all `install` commands
+- `detect_arch()` maps `uname -m` → `amd64`/`arm64`; fails on unsupported arch
+- Files in `data/`, `logs/`, `files/` are gitignored; `conf/` is tracked
 
 ## Common tasks
 
-**Upgrade versions:** Edit `CONSUL_VERSION`, `NOMAD_VERSION`, `CNI_VERSION` at the top of `hashicorp.sh` and delete the cached files in `./files/` before re-running install.
+**Upgrade versions:** Edit the version variables at the top of `hashicorp.sh`, delete the cached archives in `./files/`, then re-run the install commands.
 
-**Reset data:** Stop the tmux session, delete `./data/consul/` and/or `./data/nomad/`, then run `start` again.
+**Reset data:** Run `./hashicorp.sh stop`, delete `./data/consul/` and/or `./data/nomad/`, then run `./hashicorp.sh start`.
 
 **Add a new subcommand:** Add a `cmd_<tool>_<action>()` function and wire it into the `case` dispatch at the bottom of `hashicorp.sh`.
 
