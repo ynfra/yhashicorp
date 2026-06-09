@@ -66,6 +66,10 @@ connect {
 	enabled = true
 }
 
+telemetry {
+	prometheus_retention_time = "24h"
+}
+
 server            = true
 bootstrap         = true
 bootstrap_expect  = 1

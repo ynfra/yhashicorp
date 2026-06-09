@@ -200,6 +200,10 @@ connect {
 	enabled = true
 }
 
+telemetry {
+	prometheus_retention_time = "24h"
+}
+
 server            = true
 bootstrap         = true
 bootstrap_expect  = 1
@@ -478,6 +482,12 @@ client {
 
 	cni_path       = "/opt/cni/bin"
 	cni_config_dir = "/opt/cni/config"
+}
+
+telemetry {
+	publish_allocation_metrics = true
+	publish_node_metrics       = true
+	prometheus_metrics         = true
 }
 
 plugin "raw_exec" {
