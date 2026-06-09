@@ -19,6 +19,20 @@ ports {
 	serf = 4648
 }
 
+consul {
+	address              = "localhost:8500"
+	ssl                  = false
+	ca_file              = ""
+	cert_file            = ""
+	key_file             = ""
+	token                = ""
+	server_service_name  = "nomad-servers"
+	client_service_name  = "nomad-clients"
+	tags                 = []
+	auto_advertise       = true
+	server_auto_join     = true
+	client_auto_join     = true
+}
 data_dir = "/srv/ynfra/yhashicorp/data/nomad"
 
 log_level       = "INFO"
@@ -68,11 +82,6 @@ server {
 	}
 }
 
-server_join {
-	retry_join     = ["127.0.0.1"]
-	retry_max      = 3
-	retry_interval = "15s"
-}
 client {
 	enabled           = true
 	network_interface = "eth0"
@@ -86,6 +95,12 @@ client {
 
 	cni_path       = "/opt/cni/bin"
 	cni_config_dir = "/opt/cni/config"
+}
+
+telemetry {
+	publish_allocation_metrics = true
+	publish_node_metrics       = true
+	prometheus_metrics         = true
 }
 
 plugin "raw_exec" {
