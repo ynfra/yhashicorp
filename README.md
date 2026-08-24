@@ -1,31 +1,19 @@
-# yhashicorp
+# ynfra / yhashicorp
 
-Local Consul + Nomad setup via a single script. No systemd, no custom users — agents run in a tmux session.
+Local single-node Consul + Nomad dev stack driven by one script. No systemd,
+no custom users — both agents run in a tmux session from binaries in `./files/`.
 
 ## Prerequisites
 
 - Linux (amd64 or arm64)
-- `sudo` / root for `install` commands
-- `tmux` for `start`
-- `curl`, `unzip` (installed automatically by `install`)
+- `sudo` / root for the `install` commands
+- `tmux`, `curl`, `unzip`, `jq`, `make` (installed by `sudo ./hashicorp.sh install`)
 
-## Directory layout
-
-```
-yhashicorp/
-├── hashicorp.sh         # main script
-├── conf/
-│   ├── consul.hcl       # written by: consul bootstrap
-│   └── nomad.hcl        # written by: nomad bootstrap [--consul]
-├── files/               # downloaded archives + extracted binaries (.gitignored)
-├── data/{consul,nomad}/ # runtime data (.gitignored)
-└── logs/                # runtime logs (.gitignored)
-```
-
-## Quickstart
+## Usage
 
 ```bash
-# 1. Install binaries (requires root)
+# 1. Install system deps + binaries (root; downloads are cached in ./files/)
+sudo ./hashicorp.sh install
 sudo ./hashicorp.sh consul install
 sudo ./hashicorp.sh nomad install
 
@@ -37,37 +25,29 @@ sudo ./hashicorp.sh nomad install
 ./hashicorp.sh start
 ```
 
+Consul UI at `http://<bind_ip>:8500/ui`, Nomad API/UI on port 4646.
+
 ## Commands
 
-| Command | Description |
-|---|---|
-| `consul install` | Download Consul, install to `/usr/local/bin` |
-| `consul bootstrap` | Write `conf/consul.hcl` (single-node server) |
-| `nomad install` | Download Nomad + CNI plugins |
-| `nomad bootstrap` | Write `conf/nomad.hcl` (standalone) |
-| `nomad bootstrap --consul` | Write `conf/nomad.hcl` with Consul integration |
-| `start` | Launch tmux session `hashicorp` (consul / nomad / adhoc windows) |
+| Command | Key fact | Description |
+|---|---|---|
+| `install` | root | apt-get: `tmux curl unzip jq make` |
+| `consul install [--global]` | root · Consul 1.22.6 | Download + SHA256-verify to `./files/`; `--global` also copies to `/usr/local/bin` |
+| `consul bootstrap` | writes `conf/consul.hcl` | Single-node server, UI on :8500 |
+| `nomad install [--global]` | root · Nomad 1.11.3 + CNI v1.9.1 | Binary to `./files/`, CNI plugins to `/opt/cni/` |
+| `nomad bootstrap [--consul]` | writes `conf/nomad.hcl` | Combined server + client; `--consul` adds Consul integration |
+| `terraform install [--global]` | root · Terraform 1.14.8 | Download + SHA256-verify to `./files/` |
+| `docker install` | root | `get.docker.com` install script (cached) |
+| `start` | tmux session `hashicorp` | One window: consul pane, nomad pane, ad-hoc shell pane; attaches |
+| `stop` | | Graceful `consul leave` + SIGINT to nomad, then kills the session |
+| `validate` | | Checks binaries, configs, dirs, archives, and running agents |
 
-## Versions
+## Notes
 
-| Tool | Version |
-|---|---|
-| Consul | 1.22.6 |
-| Nomad | 1.11.3 |
-| CNI plugins | v1.9.1 |
+- Try it in the ad-hoc pane: `consul members`, `consul catalog services`, `nomad node status`, `nomad status`.
+- Stop with `./hashicorp.sh stop` (falls back to `tmux kill-session -t hashicorp`).
+- Upgrade: bump the version variables at the top of `hashicorp.sh`, delete the cached archives in `./files/`, re-run the installs.
+- `data/`, `logs/`, `files/` are gitignored runtime dirs; `conf/` is tracked.
+- Local dev only — no TLS/ACLs; multi-node clusters live in `yansible/`, Nomad jobs in `yterraform/`.
 
-## Useful commands (in adhoc window)
-
-```bash
-consul members
-consul catalog services
-
-nomad node status
-nomad status
-```
-
-## Stopping
-
-```bash
-tmux kill-session -t hashicorp
-```
+See [AGENTS.md](AGENTS.md) for conventions, config internals, and day-2 operations.
